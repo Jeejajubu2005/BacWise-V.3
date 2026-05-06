@@ -77,4 +77,4 @@ if uploaded_file is not None:
             st.write(f"ความมั่นใจ: {conf_color:.2f}%")
 
 st.divider()
-st.caption("BacWise Project - พัฒนาโดยใช้ VGG16 Transfer Learning")
+st.caption("BacWise Project - คุณสามารถทดลองใช้งานได้ ")

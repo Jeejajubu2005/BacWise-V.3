@@ -10,7 +10,7 @@ import os
 st.set_page_config(page_title="BacWise v3 - Bacterial Classifier", page_icon="🔬")
 
 st.markdown("<h1 style='text-align: center;'>🔬 BacWise v3</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align: center;'>ระบบจำแนกรูปร่างและสีแกรมแบคทีเรียอัตโนมัติ (โหลดโมเดลจากคลาวด์)</p>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center;'>ระบบจำแนกรูปร่างและสีแกรมแบคทีเรียอัตโนมัติ </p>", unsafe_allow_html=True)
 st.divider()
 
 # --- ฟังก์ชันดาวน์โหลดไฟล์จาก Google Drive ---

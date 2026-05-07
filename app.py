@@ -1,80 +1,100 @@
 import streamlit as st
 import tensorflow as tf
-from tensorflow.keras.models import load_model
 from PIL import Image
 import numpy as np
 import gdown
 import os
 
-# --- ตั้งค่าหน้าตาแอป ---
-st.set_page_config(page_title="BacWise v3 - Bacterial Classifier", page_icon="🔬")
+# --- 1. ตั้งค่าหัวข้อแอป (ใช้ดีไซน์ที่คุณทำใน Canva มาประกอบได้) ---
+st.set_page_config(page_title="BacWise v.3", layout="centered")
+st.title("🔬 BacWise: Bacterial Morphological Analysis")
+st.write("ระบบวิเคราะห์รูปร่างและการย้อมแกรมแบคทีเรียอัตโนมัติ")
 
-st.markdown("<h1 style='text-align: center;'>🔬 BacWise v3</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align: center;'>ระบบจำแนกรูปร่างและสีแกรมแบคทีเรียอัตโนมัติ </p>", unsafe_allow_html=True)
-st.divider()
-
-# --- ฟังก์ชันดาวน์โหลดไฟล์จาก Google Drive ---
+# --- 2. ฟังก์ชันดาวน์โหลดโมเดลจาก Google Drive (ใส่ File ID ของคุณ) ---
 @st.cache_resource
-def download_model_from_drive(file_id, output_path):
-    if not os.path.exists(output_path):
-        url = f'https://drive.google.com/uc?id={file_id}'
-        try:
-            gdown.download(url, output_path, quiet=False)
-        except Exception as e:
-            st.error(f"เกิดข้อผิดพลาดในการดาวน์โหลด: {e}")
-            return None
-    return output_path
-
-# --- ส่วนของการโหลดโมเดล ---
-SHAPE_MODEL_ID = '18Mi_XotFtKUcPUzNCRWeq8CVdILJUpPa'
-COLOR_MODEL_ID = '1ZCOyWd4Py43b2gUqPowgKGN5LIxNsGfQ'
-
-with st.spinner('กำลังเชื่อมต่อกับ Google Drive เพื่อโหลดโมเดล...'):
-    shape_path = download_model_from_drive(SHAPE_MODEL_ID, 'bacterial_shape_model_v3.h5')
-    color_path = download_model_from_drive(COLOR_MODEL_ID, 'bacterial_color_model_v3.h5')
+def load_models():
+    # แทนที่ 'YOUR_SHAPE_MODEL_ID' ด้วย ID จริงจาก Drive ของคุณ
+    shape_id = 'YOUR_SHAPE_MODEL_ID' 
+    color_id = 'YOUR_COLOR_MODEL_ID'
     
-    if shape_path and color_path:
-        model_shape = load_model(shape_path)
-        model_color = load_model(color_path)
-    else:
-        st.error("❌ ไม่สามารถโหลดโมเดลได้ กรุณาตรวจสอบการตั้งค่าการแชร์ไฟล์ใน Google Drive ให้เป็น 'Anyone with the link'")
-        st.stop()
+    shape_path = 'bacterial_shape_model_v3.h5'
+    color_path = 'bacterial_color_model_v3.h5'
 
-# --- ฟังก์ชันพยากรณ์ ---
-def predict_bacteria(img, model, labels):
-    img = img.resize((224, 224))
-    img_array = np.array(img) / 255.0
+    if not os.path.exists(shape_path):
+        gdown.download(f'https://drive.google.com/uc?id={shape_id}', shape_path, quiet=False)
+    if not os.path.exists(color_path):
+        gdown.download(f'https://drive.google.com/uc?id={color_id}', color_path, quiet=False)
+
+    model_shape = tf.keras.models.load_model(shape_path)
+    model_color = tf.keras.models.load_model(color_path)
+    return model_shape, model_color
+
+# โหลดโมเดล
+try:
+    model_shape, model_color = load_models()
+    st.success("✅ โมเดลวิเคราะห์พร้อมใช้งาน!")
+except Exception as e:
+    st.error(f"❌ โหลดโมเดลไม่สำเร็จ: {e}")
+
+# --- 3. ฟังก์ชันพยากรณ์ (จุดที่แก้ ValueError) ---
+def predict_bacteria(image, model, labels, is_color=False):
+    # 1. Resize ภาพให้เป็น 224x224 ตามที่ VGG16 ต้องการ
+    img = image.resize((224, 224))
+    # 2. แปลงเป็น Array
+    img_array = tf.keras.preprocessing.image.img_to_array(img)
+    # 3. Normalize (หาร 255.0)
+    img_array = img_array / 255.0
+    # 4. เพิ่มมิติ Batch (1, 224, 224, 3)
     img_array = np.expand_dims(img_array, axis=0)
+    
+    # 5. พยากรณ์
     preds = model.predict(img_array)
-    idx = np.argmax(preds)
-    conf = preds[0][idx] * 100
-    return labels[idx], conf
+    
+    # ดึงค่าที่แม่นยำที่สุด
+    if is_color:
+        # สำหรับโมเดลสี (Sigmoid - 1 output)
+        confidence = preds[0][0]
+        result_idx = 1 if confidence > 0.5 else 0
+        final_conf = confidence if result_idx == 1 else 1 - confidence
+    else:
+        # สำหรับโมเดลรูปร่าง (Softmax - 3 outputs)
+        result_idx = np.argmax(preds[0])
+        final_conf = np.max(preds[0])
+        
+    return labels[result_idx], final_conf
 
-# --- ส่วนรับภาพจากผู้ใช้ ---
-uploaded_file = st.file_uploader("เลือกรูปภาพแบคทีเรีย...", type=["jpg", "png", "jpeg"])
+# --- 4. ส่วนแสดงผลบนหน้าเว็บ ---
+uploaded_file = st.file_uploader("อัปโหลดภาพถ่ายจากกล้องจุลทรรศน์...", type=["jpg", "jpeg", "png"])
 
 if uploaded_file is not None:
-    image = Image.open(uploaded_file)
-    st.image(image, caption='รูปภาพที่อัปโหลด', use_container_width=True)
+    image = Image.open(uploaded_file).convert('RGB')
+    st.image(image, caption="ภาพที่คุณอัปโหลด", use_container_width=True)
     
-    with st.spinner('กำลังวิเคราะห์...'):
-        shape_labels = ['Bacilli', 'Cocci', 'Spiral']
-        color_labels = ['Gram Negative (Pink/Red)', 'Gram Positive (Purple/Blue)']
-        
-        res_shape, conf_shape = predict_bacteria(image, model_shape, shape_labels)
-        res_color, conf_color = predict_bacteria(image, model_color, color_labels)
-        
-        st.success("วิเคราะห์เสร็จสิ้น!")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader("รูปร่าง (Shape)")
-            st.info(f"**{res_shape}**")
-            st.write(f"ความมั่นใจ: {conf_shape:.2f}%")
-        with col2:
-            st.subheader("สีย้อม (Gram Stain)")
-            text_color = "#FF69B4" if "Negative" in res_color else "#6A0DAD"
-            st.markdown(f"<h3 style='color: {text_color};'>{res_color}</h3>", unsafe_allow_html=True)
-            st.write(f"ความมั่นใจ: {conf_color:.2f}%")
+    if st.button("เริ่มการวิเคราะห์"):
+        with st.spinner('AI กำลังวิเคราะห์...'):
+            # กำหนด Label ให้ตรงกับโฟลเดอร์ที่คุณเทรน
+            shape_labels = ['Bacilli', 'Cocci', 'Spiral']
+            color_labels = ['Gram Negative', 'Gram Positive'] # เช็คลำดับให้ตรงกับ class_indices ใน Colab
 
-st.divider()
-st.caption("BacWise Project - Kanokkan Saikhuntod ")
+            # พยากรณ์รูปร่าง
+            res_shape, conf_shape = predict_bacteria(image, model_shape, shape_labels)
+            # พยากรณ์สี
+            res_color, conf_color = predict_bacteria(image, model_color, color_labels, is_color=True)
+
+            # แสดงผลลัพธ์
+            st.divider()
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.metric("รูปร่าง (Shape)", res_shape)
+                st.write(f"ความมั่นใจ: {conf_shape*100:.2f}%")
+            
+            with col2:
+                # เปลี่ยนสีตัวอักษรตามผล Gram
+                color_hex = "#FF69B4" if "Negative" in res_color else "#8A2BE2"
+                st.subheader("การย้อมสี (Gram)")
+                st.markdown(f"<h2 style='color: {color_hex};'>{res_color}</h2>", unsafe_allow_html=True)
+                st.write(f"ความมั่นใจ: {conf_color*100:.2f}%")
+
+            # คำแนะนำเพิ่มเติม
+            st.info("💡 คำแนะนำ: หากภาพมีเชื้อเกาะกลุ่มกันแน่น ผลการวิเคราะห์รูปร่างอาจคลาดเคลื่อนได้")
